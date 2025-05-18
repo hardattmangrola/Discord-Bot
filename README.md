@@ -22,5 +22,4 @@ A friendly Node.js Discord bot that tells jokes, inspires with quotes, gives wea
    git clone https://github.com/your-username/discord-companion-bot.git
    cd discord-companion-bot
 
-![image](https://github.com/user-attachments/assets/d78d521f-eff6-49c3-b945-985275a0bb0d)
 
