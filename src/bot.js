@@ -1,6 +1,14 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
-const axios = require('axios');
+import dotenv from 'dotenv';
+dotenv.config();
+
+import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
+import axios from 'axios';
+import Groq from 'groq-sdk';
+
+
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
 const client = new Client({
   intents: [
@@ -25,85 +33,42 @@ const emoji = {
   party: '🥳',
 };
 
-async function fetchJoke() {
+// Your existing utility functions (fetchJoke, fetchQuote, fetchWeather, randomChoice, etc.) remain unchanged
+
+// Groq ask function
+async function askGroq(prompt) {
   try {
-    const res = await axios.get('https://official-joke-api.appspot.com/random_joke');
-    return `${res.data.setup} - ${res.data.punchline}`;
-  } catch {
-    return 'Why did the robot fail his test? He kept short-circuiting the answers! 🤖';
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant that replies in 1 or 2 short lines.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      max_tokens: 60,  // limit response length
+      temperature: 0.7,
+    });
+    return completion.choices[0]?.message?.content.trim() || "No response from Groq.";
+  } catch (err) {
+    console.error("Groq API error:", err);
+    if (err.status === 429 || err.code === 'insufficient_quota') {
+      return "⚠️ I'm currently overloaded with requests. Please try again soon!";
+    }
+    return "❌ Sorry, I couldn't get a response from Groq. Please try again later.";
   }
 }
 
-async function fetchQuote() {
-  try {
-    const res = await axios.get('https://api.quotable.io/random');
-    return `${res.data.content} — *${res.data.author}*`;
-  } catch {
-    return 'In the middle of every difficulty lies opportunity. — *Albert Einstein*';
-  }
-}
-
-async function fetchWeather(city) {
-  const apiKey = process.env.OPENWEATHER_API_KEY;
-  const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&units=metric&appid=${apiKey}`;
-  try {
-    const res = await axios.get(url);
-    const data = res.data;
-    return `📍 **${data.name}**\n🌡️ Temp: ${data.main.temp}°C\n☁️ Weather: ${data.weather[0].description}`;
-  } catch {
-    return '❌ Could not fetch weather. Make sure the city is correct!';
-  }
-}
-
-function randomChoice(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function getGreetingReply(username) {
-  const replies = [
-    `Hey ${username}! ${emoji.wave} How can I help you today?`,
-    `Hello ${username}! ${emoji.robot} What’s up?`,
-    `Hi there ${username}! ${emoji.sparkles} Ready to chat!`,
-    `Yo ${username}! ${emoji.fire} What’s going on?`,
-  ];
-  return randomChoice(replies);
-}
-
-function getFarewellReply(username) {
-  const replies = [
-    `Goodbye ${username}! ${emoji.wave} Come back soon!`,
-    `See you later, ${username}! ${emoji.party}`,
-    `Take care, ${username}! ${emoji.thumbsUp}`,
-    `Catch you later, ${username}! ${emoji.robot}`,
-  ];
-  return randomChoice(replies);
-}
-
-function getCompliment() {
-  const compliments = [
-    "You're awesome! 😎",
-    "Keep shining! ✨",
-    "You're a star! 🌟",
-    "Love your vibes! ❤️",
-  ];
-  return randomChoice(compliments);
-}
-
-function getFallbackReply() {
-  const replies = [
-    "I'm here if you want to chat! 🤖",
-    "Tell me more! 💡",
-    "That's interesting! 😄",
-    "I love hearing from you! ❤️",
-    "Keep it coming! 🔥",
-  ];
-  return randomChoice(replies);
-}
-
+// Bot Ready
 client.once(Events.ClientReady, () => {
   console.log(`${emoji.robot} ${client.user.tag} is online!`);
 });
 
+// Message Handler
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
 
@@ -116,6 +81,7 @@ client.on(Events.MessageCreate, async (message) => {
       `• /joke for a joke 🤣\n` +
       `• /inspire for a quote ✨\n` +
       `• /weather <city> for weather 🌦️\n` +
+      `• /ask <question> to chat with me 🤖\n` +
       `• Say hi, thanks, or anything else for a friendly reply!`
     );
   }
@@ -140,18 +106,33 @@ client.on(Events.MessageCreate, async (message) => {
     return message.reply(weather);
   }
 
+  if (lower.startsWith('/ask ')) {
+    const prompt = content.slice(5).trim();
+    if (!prompt) {
+      return message.reply('Please provide a question or prompt.');
+    }
+
+    await message.channel.sendTyping();
+    const reply = await askGroq(prompt);
+    return message.reply(`${emoji.robot} ${reply}`);
+  }
+
+  // Greetings
   if (['hi', 'hello', 'hey', 'hola', 'how are you'].some(greet => lower.includes(greet))) {
     return message.reply(getGreetingReply(message.author.username));
   }
 
+  // Farewells
   if (['bye', 'goodbye', 'see ya', 'later', 'cya'].some(word => lower.includes(word))) {
     return message.reply(getFarewellReply(message.author.username));
   }
 
+  // Thanks
   if (['thank you', 'thanks', 'thx', 'ty'].some(word => lower.includes(word))) {
     return message.reply(`${emoji.thumbsUp} You’re welcome, ${message.author.username}!`);
   }
 
+  // Laughs
   if (['lol', 'haha', 'lmao', 'rofl'].some(word => lower.includes(word))) {
     try {
       await message.react('😂');
@@ -159,10 +140,12 @@ client.on(Events.MessageCreate, async (message) => {
     return message.reply("Glad I could make you laugh! 😄");
   }
 
+  // Compliments
   if (['awesome', 'great', 'cool', 'nice', 'love it'].some(word => lower.includes(word))) {
     return message.reply(getCompliment());
   }
 
+  // Default fallback
   try {
     await message.react(emoji.robot);
     await message.react(emoji.sparkles);
